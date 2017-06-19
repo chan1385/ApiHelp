@@ -1,0 +1,668 @@
+using Dynamitey;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using RestSharp;
+using System;
+using System.Collections.Generic;
+using System.Dynamic;
+using System.Linq;
+using System.Net;
+using System.Text;
+using System.Threading.Tasks;
+using PPS.Automation.Common.ExcelOperations;
+using PPS.Automation.APICommon;
+using NUnit.Framework;
+using PPS.Automation.Common.ControlFunctions;
+
+namespace PPS.Automation.APICommon
+{
+    public class ApiHelpAutomation
+    {
+        //static string testUrl = null;//"https://pstest.onpraemium.com/";
+        //static string parentEndPoint = "beneficiary";
+        //static string testEndPoint = "beneficiaries";
+        //static string contentType = "application/json";
+        static dynamic sampleRequest = null;
+        static string eleObject = null;
+        public static void GetApiHelp(string testUrl, string testToken, string typeContent)
+        {
+            string helpRes = System.IO.File.ReadAllText(".//Resources//apihelp.txt");
+            if (string.IsNullOrEmpty(helpRes))
+            {
+                RestClient restClient = new RestClient(testUrl);
+                restClient.ClearHandlers();
+                var request = new RestRequest("apihelp", Method.GET);
+                request.AddHeader("Content-Type", "" + typeContent + "; charset=utf-8");
+                request.AddHeader("X-PPS-TOKEN", testToken);
+                var response = restClient.Execute(request);
+                System.IO.File.WriteAllText(".//Resources//apihelp.txt", response.Content);
+            }
+        }
+        public static Dictionary<string, object> GetSample(string testUrl, string testToken, string typeContent, string getType, string rootElement, string childElement)
+        {
+            //string url = "https://pstest.onpraemium.com/";
+            Dictionary<string, object> sampleReq = null;
+            string helpRes = System.IO.File.ReadAllText(".//Resources//apihelp.txt");
+            dynamic d = JsonConvert.DeserializeObject<dynamic>(helpRes);
+            Dictionary<string, object> rootValues = d.ToObject<Dictionary<string, object>>();
+            List<string> toReturn = new List<string>();
+            foreach (string rootKey in rootValues.Keys.Where(key => key.Equals(rootElement)))
+            {
+                toReturn.Add(rootKey);
+                JObject val = d[rootKey];
+                //Console.WriteLine(val.ToString());
+                Dictionary<string, object> apiHelpRequest = val.ToObject<Dictionary<string, object>>();
+                foreach (string apiHelpKey in apiHelpRequest.Keys)
+                {
+                    object val1 = apiHelpRequest[apiHelpKey];
+                    var requestType = (JObject)JsonConvert.DeserializeObject(val1.ToString());
+                    Dictionary<string, object> requests = requestType.ToObject<Dictionary<string, object>>();
+                    foreach (string req in requests.Keys.Where(endPoint => endPoint.Equals(childElement)))
+                    {
+                        string psEndPoint = req;
+                        //Console.WriteLine(psEndPoint);
+                        object val3 = requests[req];
+                        var reqVal3 = (JObject)JsonConvert.DeserializeObject(val3.ToString());
+                        Dictionary<string, object> reqLinks = reqVal3.ToObject<Dictionary<string, object>>();
+                        foreach (string reqL in reqLinks.Keys)
+                        {
+                            string psLinks = reqL;
+                            object val4 = reqLinks[reqL];
+                            var val4Help = (JObject)JsonConvert.DeserializeObject(val4.ToString());
+                            Dictionary<string, object> reqHelp = val4Help.ToObject<Dictionary<string, object>>();
+                            foreach (string reqH in reqHelp.Keys)
+                            {
+                                string psHelpLinks = reqH;
+                                object val5 = reqHelp[reqH];
+                                //Console.WriteLine(val5);
+                                sampleReq = GetSampleRequest(testUrl, val5.ToString(), testToken, typeContent, getType);
+                                //return null;
+                            }
+                            break;
+                        }
+                    }
+                }
+                //break;
+            }
+            return sampleReq;
+        }
+        public static Dictionary<string, object> GetSampleRequest(string testUrl, string reqUrl, string testToken, string typeContent, string getType)
+        {
+            Dictionary<string, object> sampleVal = new Dictionary<string, object>();
+            RestClient restClient1 = new RestClient(testUrl);
+            restClient1.ClearHandlers();
+            var endPointRequestHelp = new RestRequest(reqUrl, Method.GET);
+            endPointRequestHelp.AddHeader("Content-Type", "" + typeContent + "; charset=utf-8");
+            endPointRequestHelp.AddHeader("X-PPS-Token", testToken);
+            var endPointResponsehelp = restClient1.Execute(endPointRequestHelp);
+            dynamic d1 = JsonConvert.DeserializeObject<dynamic>(endPointResponsehelp.Content);
+            if (getType.Equals("SampleRequest"))
+            {
+                sampleVal.Add("Route", d1.Route);
+                sampleVal.Add("HttpMethod", d1.HttpMethod);
+                string sampleReq = GetSampleRequestType(d1.SampleRequests, typeContent);
+                sampleVal.Add("SampleRequests", sampleReq);
+                Console.WriteLine(d1.Route);
+                Console.WriteLine(d1.HttpMethod);
+                Console.WriteLine(sampleReq);
+            }
+            else
+            {
+                string sampleRes = GetSampleRequestType(d1.SampleResponses, typeContent);
+                sampleVal.Add("SampleResponses", sampleRes);
+                Console.WriteLine(sampleRes);
+            }
+            return sampleVal;
+        }
+        internal static bool GenerateDiffBCFile(string reqName, int rData, string testEnv, bool isXml = false, string[] ignoreEle = null)
+        {
+            bool validErr = false;
+            bool flag1 = false;
+            bool flag2 = false;
+            System.Diagnostics.Process process = new System.Diagnostics.Process();
+            System.Diagnostics.ProcessStartInfo startInfo = new System.Diagnostics.ProcessStartInfo();
+            startInfo.WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden;
+            startInfo.RedirectStandardOutput = true;
+            startInfo.UseShellExecute = false;
+            startInfo.FileName = "C:\\Program Files\\Beyond Compare 4\\BComp.exe";
+            string startupPath = Environment.CurrentDirectory;
+            //string rptParm = startupPath+"\\UnrealisedCGT.html";
+            //htmlDirPath = PublicAPITests.resDirPath + "APIHtmlReport\\";
+            //Directory.CreateDirectory(htmlDirPath);
+            string rptParm = null;
+            string rptParmText = null;
+            if (!isXml)
+            {
+                rptParm = SuperFixtureAPI.resDirPath + reqName+rData + ".txt";
+                rptParmText = SuperFixtureAPI.resDirPath + reqName + rData + "Ignore.txt";
+            }
+            if (isXml)
+                rptParm = startupPath + "\\Results\\APIResults\\" + SuperFixtureAPI.testFixtureName + "\\Requests\\" + reqName + rData.ToString() + "xml.txt";
+            else
+                rptParm = startupPath + "\\Results\\APIResults\\" + SuperFixtureAPI.testFixtureName + "\\Requests\\" + reqName + rData.ToString() + "json.txt";
+            if (reqName.StartsWith("UK"))
+            {
+                if (isXml)
+                    startInfo.Arguments = "  /silent @" + startupPath + "\\Resources\\BCIgnorescript.txt " + startupPath + "\\Results\\APIResults\\" + SuperFixtureAPI.testFixtureName + "\\Requests\\" + reqName + rData.ToString() + ".xml " +
+                                        startupPath + "\\Resources\\API_Baseline\\UK\\" + testEnv + "\\" + reqName + rData.ToString() + ".xml "
+                                        + rptParm;
+                else
+                    startInfo.Arguments = "  /silent @" + startupPath + "\\Resources\\BCIgnorescript.txt " + startupPath + "\\Results\\APIResults\\" + SuperFixtureAPI.testFixtureName + "\\Requests\\" + reqName + rData.ToString() + ".json " +
+                                         startupPath + "\\Resources\\API_Baseline\\UK\\" + testEnv + "\\" + reqName + rData.ToString() + ".json "
+                                         + rptParm;
+            }
+            else
+            {
+                if (isXml)
+                    startInfo.Arguments = "  /silent @" + startupPath + "\\Resources\\Bscript.txt " + startupPath + "\\Results\\APIResults\\" + SuperFixtureAPI.testFixtureName + "\\Requests\\" + reqName + rData.ToString() + ".xml " +
+                                        startupPath + "\\Resources\\API_Baseline\\AU\\" + testEnv + "\\" + reqName + rData.ToString() + ".xml "
+                                        + rptParm;
+                else
+                    startInfo.Arguments = "  /silent @" + startupPath + "\\Resources\\Bscript.txt " + startupPath + "\\Results\\APIResults\\" + SuperFixtureAPI.testFixtureName + "\\Requests\\" + reqName + rData.ToString() + ".json " +
+                                         startupPath + "\\Resources\\API_Baseline\\AU\\" + testEnv + "\\" + reqName + rData.ToString() + ".json "
+                                         + rptParm;
+            }
+           
+            Console.WriteLine(startInfo.Arguments);
+            process.StartInfo = startInfo;
+            process.Start();
+            //process.WaitForExit(5000);
+            SeleniumAction.Sync(7);
+            if (!process.HasExited)
+            {
+                Console.WriteLine("Could not kill Examdiff");
+                process.Kill();
+            }
+            //string[] bcRes = System.IO.File.ReadAllLines(rptParm);
+            //validErr = bcRes.Any(x => x.Contains("+-")) ? false : true;
+            //if(validErr)
+            //    validErr = bcRes.Any(x => x.Contains("\":")) ? false : true;
+            //return validErr;
+            if (reqName.StartsWith("UK"))
+            {
+                if (!isXml)
+                    startInfo.Arguments = "  /silent @" + startupPath + "\\Resources\\BCIgnore.txt " + startupPath + "\\Results\\APIResults\\" + SuperFixtureAPI.testFixtureName + "\\Requests\\" + reqName + rData.ToString() + ".json " +
+                        startupPath + "\\Resources\\API_Baseline\\UK\\" + SuperFixtureAPI.env + "\\" + reqName + rData + ".json "
+                                        + rptParmText;
+            }
+            Console.WriteLine(startInfo.Arguments);
+            process.StartInfo = startInfo;
+            process.Start();
+            //process.WaitForExit(12000);
+            SeleniumAction.Sync(7);
+            if (!process.HasExited)
+            {
+                Console.WriteLine("Could not kill Examdiff");
+                process.Kill();
+            }
+            string[] bcRes = System.IO.File.ReadAllLines(rptParm);
+            if (ignoreEle != null)
+                flag1 = ignoreEle.All(p => bcRes.Any(b => b.Contains(p))) ? true : false;
+            string[] bcIgRes = System.IO.File.ReadAllLines(rptParmText);
+            if (bcIgRes.Length == 6)
+                flag2 = true;
+            validErr = flag1 && flag2;
+            //else
+            //    flag2 = flag;
+            //if (flag2)
+            //    GenerateHTMLDiffReport(accntCode, accntCreated, testEnv, isPdf);
+            //validErr = bcRes.Any(x => x.Contains("Produced")) ? true : false;
+            return validErr;
+        }
+        internal static void GenerateHTMLDiffReport(string reqName, int rData, string testEnv, bool isXml = true)
+        {
+            System.Diagnostics.Process process = new System.Diagnostics.Process();
+            System.Diagnostics.ProcessStartInfo startInfo = new System.Diagnostics.ProcessStartInfo();
+            startInfo.WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden;
+            startInfo.RedirectStandardOutput = true;
+            startInfo.UseShellExecute = false;
+            startInfo.FileName = "C:\\Program Files\\Beyond Compare 4\\BComp.exe";
+            string startupPath = Environment.CurrentDirectory;
+            //string rptParm = startupPath+"\\UnrealisedCGT.html";
+            //htmlDirPath = PublicAPITests.resDirPath + "APIHtmlReport\\";
+            //Directory.CreateDirectory(htmlDirPath);
+            string rptParm = null;
+            if (isXml)
+                rptParm = startupPath + "\\Results\\APIResults\\" + SuperFixtureAPI.testFixtureName + "\\APIRequest\\" + reqName + rData.ToString() + "xml.html";
+            else
+                rptParm = startupPath + "\\Results\\APIResults\\" + SuperFixtureAPI.testFixtureName + "\\APIRequest\\" + reqName + rData.ToString() + "json.html";
+            if (reqName.StartsWith("UK"))
+            {
+                if (isXml)
+                    startInfo.Arguments = "  /silent @" + startupPath + "\\Resources\\Bscript.txt " + startupPath + "\\Results\\APIResults\\" + SuperFixtureAPI.testFixtureName + "\\Requests\\" + reqName + rData.ToString() + ".xml " +
+                                        startupPath + "\\Resources\\API_Baseline\\UK\\" + testEnv + "\\" + reqName + rData.ToString() + ".xml "
+                                        + rptParm;
+                else
+                    startInfo.Arguments = "  /silent @" + startupPath + "\\Resources\\Bscript.txt " + startupPath + "\\Results\\APIResults\\" + SuperFixtureAPI.testFixtureName + "\\Requests\\" + reqName + rData.ToString() + ".json " +
+                                         startupPath + "\\Resources\\API_Baseline\\UK\\" + testEnv + "\\" + reqName + rData.ToString() + ".json "
+                                         + rptParm;
+            }
+            else
+            {
+                if (isXml)
+                    startInfo.Arguments = "  /silent @" + startupPath + "\\Resources\\Bscript.txt " + startupPath + "\\Results\\APIResults\\" + SuperFixtureAPI.testFixtureName + "\\Requests\\" + reqName + rData.ToString() + ".xml " +
+                                        startupPath + "\\Resources\\API_Baseline\\AU\\" + testEnv + "\\" + reqName + rData.ToString() + ".xml "
+                                        + rptParm;
+                else
+                    startInfo.Arguments = "  /silent @" + startupPath + "\\Resources\\Bscript.txt " + startupPath + "\\Results\\APIResults\\" + SuperFixtureAPI.testFixtureName + "\\Requests\\" + reqName + rData.ToString() + ".json " +
+                                         startupPath + "\\Resources\\API_Baseline\\AU\\" + testEnv + "\\" + reqName + rData.ToString() + ".json "
+                                         + rptParm;
+            }
+            Console.WriteLine(startInfo.Arguments);
+            process.StartInfo = startInfo;
+            process.Start();
+            process.WaitForExit(5000);
+            //SeleniumAction.Sync(4);
+            if (!process.HasExited)
+            {
+                Console.WriteLine("Could not kill Examdiff");
+                process.Kill();
+            }
+        }
+        public static string GetSampleRequestType(dynamic specificReqType, string contentType)
+        {
+            string reqType = null;
+            Dictionary<string, object> sampleReq = specificReqType.ToObject<Dictionary<string, object>>();
+            List<string> reqTypes = new List<string>();
+            object val6 = null;
+            foreach (string reqT in sampleReq.Keys.Where(contentT => contentT.Equals(contentType)))
+            {
+                reqTypes.Add(reqT);
+                string types = reqT;
+                val6 = sampleReq[reqT];
+                if (val6 != null)
+                {
+                    dynamic d2 = JsonConvert.DeserializeObject<dynamic>(val6.ToString());
+                    //d2 = new ExpandoObject();
+                    reqType = d2.Text;
+                    //break;
+                }
+            }
+            if (!string.IsNullOrEmpty(reqType))
+                return reqType.ToString();
+            else
+                return null;
+        }
+        public static dynamic GetUpdatedRequests(string route, string dataFilePath, string shName, int rowData, Dictionary<string, object> sampleReq)
+        {
+            dynamic be = null;
+            switch (sampleReq["HttpMethod"].ToString())
+            {
+                case "POST":
+                    be = UpdatedPostRequests(dataFilePath, shName, rowData, sampleReq);
+                    break;
+                case "GET":
+                    string b = UpdateRoutes(route, dataFilePath, shName, rowData);
+                    break;
+
+            }
+            return be;
+        }
+        public static string UpdateRoutes(string route, string dataFilePath, string shName, int rowData)
+        {
+            if (route.Contains("{") && route.Contains("}"))
+            {
+                try
+                {
+                    int totalCol = Excel.GetExcelColCount(dataFilePath, shName, 0).ToString().IsNumeric();
+                    for (int cc = 0; cc < totalCol; cc++)
+                    {
+                        string element = Excel.GetCellValue(dataFilePath, shName, 0, cc).ToString();
+                        if (route.Contains(element))
+                            route = route.Replace(element, PPS.Automation.Common.ExcelOperations.Excel.GetCellValOnCol(dataFilePath, shName, rowData, element).ToString());
+                    }
+                    route = route.Replace("{", "").Replace("}", "");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine("Within Update Route code - Data missing in Excel " + ex.Message);
+                    System.IO.File.AppendAllLines(".//Resources//tmp.txt", new string[] { "Result:FAILED" });
+                }
+            }
+
+            return route;
+        }
+
+        public static dynamic UpdatedPostRequests(string dataFilePath, string shName, int rowData, Dictionary<string, object> sampleReq)
+        {
+            dynamic be;
+            int flagCount = 0;
+            dynamic dSample = JsonConvert.DeserializeObject<dynamic>(sampleReq["SampleRequests"].ToString());
+            be = new ExpandoObject();
+            sampleRequest = dSample;
+            int totalCol = Excel.GetExcelColCount(dataFilePath, shName, 0).ToString().IsNumeric();
+            for (int cc = 0; cc < totalCol; cc++)
+            {
+                string element = Excel.GetCellValue(dataFilePath, shName, 0, cc).ToString();
+                if (!element.Equals("|NoOfElements|"))
+                {
+                    string elementValue = Excel.GetCellValOnCol(dataFilePath, shName, rowData, element).ToString();
+                    Dynamic.InvokeSet(be, element, elementValue);
+
+                }
+                else
+                {
+                    int elementSize = Excel.GetCellValOnCol(dataFilePath, shName, rowData, element).ToString().IsNumeric();
+                    List<dynamic> listOfElement = new List<dynamic>();
+                    eleObject = Excel.GetCellValue(dataFilePath, shName, 0, cc + 1).ToString();
+                    for (int i = 0; i < elementSize; i++)
+                    {
+                        flagCount = 0;
+                        dynamic dElement = new ExpandoObject();
+                        for (int ac = cc + 2; ac < totalCol; ac++)
+                        {
+                            string listElement = Excel.GetCellValue(dataFilePath, shName, 0, ac).ToString();
+                            if (!listElement.Equals("|NoOfElements|"))
+                            {
+                                flagCount = flagCount + 1;
+                                string listElementValue = Excel.GetCellValOnCol(dataFilePath, shName, rowData, listElement).ToString();
+                                Dynamic.InvokeSet(dElement, listElement, listElementValue);
+                            }
+                            else
+                                break;
+
+                        }
+                        listOfElement.Add(dElement);
+                    }
+                    cc = flagCount + cc + 1;//Neglect the number of Elements in List
+                    Dynamic.InvokeSet(be, eleObject, listOfElement);
+                }
+            }
+            return be;
+        }
+        public static bool ValidateResponse(Dictionary<string, object> sampleRes, string resFilePath, string shName, int rowData, IRestResponse actResponse)
+        {
+            bool ans = false;
+            int resFlagCount = 0;
+            int objFlagCount = 0;
+            dynamic dRes = JsonConvert.DeserializeObject<dynamic>(actResponse.Content.ToString());
+            if (actResponse.StatusCode == HttpStatusCode.OK)
+            {
+                dynamic res = new ExpandoObject();
+                res = dRes;
+                int totalResCol = PPS.Automation.Common.ExcelOperations.Excel.GetExcelColCount(resFilePath, shName, 0).ToString().IsNumeric();
+                for (int rc = 0; rc < totalResCol; rc++)
+                {
+                    string element = Excel.GetCellValue(resFilePath, shName, 0, rc).ToString();
+                    if (!element.Equals("|NoOfElements|"))
+                    {
+                        if (!element.Equals("|IsAnObject|"))
+                        {
+                            string elementValue = null;
+                            if (Excel.GetCellValue(resFilePath, shName, rowData, rc) != null)
+                            {
+                                elementValue = Excel.GetCellValue(resFilePath, shName, rowData, rc).ToString();
+                                string actRes = Dynamic.InvokeGet(res, element);
+                                Console.WriteLine(actRes.ToString());
+                                //JObject listRes = Dynamic.InvokeGetIndex(res, 0);
+                                //JProperty actRes = listRes.Property(element);
+                                if (!actRes.ToString().Contains(elementValue))
+                                {
+                                    ans = false;
+                                    break;
+                                }
+                                else
+                                    ans = true;
+                            }
+                        }
+                    }
+                    if (element.Equals("|IsAnObject|"))
+                    {
+                        string pObject = Excel.GetCellValue(resFilePath, shName, rowData, rc).ToString();
+                        for (int occ = rc + 1; occ < totalResCol; occ++)
+                        {
+                            string eValue;
+                            if (Excel.GetCellValue(resFilePath, shName, rowData, occ) != null)
+                            {
+                                resFlagCount = resFlagCount + 1;
+                                element = Excel.GetCellValue(resFilePath, shName, 0, occ).ToString();
+                                eValue = Excel.GetCellValue(resFilePath, shName, rowData, occ).ToString();
+                                dynamic objRes = Dynamic.InvokeGet(res, pObject);
+                                string res1 = Dynamic.InvokeGet((object)objRes, element);
+                                if (!res1.Contains(eValue))
+                                {
+                                    ans = false;
+                                    System.IO.File.AppendAllLines(".//Resources//tmp.txt", new string[] { "Result:FAILED" });
+                                    System.IO.File.AppendAllLines(".//Resources//tmp.txt", new string[] { "Response Comparison Failed : " + res1.ToString() });
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if (element.Equals("|NoOfElements|"))
+                    {
+                        resFlagCount = 0;
+                        string listElement = null;
+                        int elementSize = Excel.GetCellValue(resFilePath, shName, rowData, rc).ToString().IsNumeric();
+                        if (elementSize == 0)
+                        {
+                            resFlagCount = resFlagCount + 1;
+                            listElement = Excel.GetCellValue(resFilePath, shName, 0, rc + 1).ToString();
+                            if (!string.IsNullOrEmpty(sampleRes["SampleResponses"].ToString()))
+                            {
+
+                            }
+                            if (!actResponse.Content.Contains(listElement))
+                            {
+                                ans = false;
+                                break;
+                            }
+                            else
+                                ans = true;
+                        }
+                        else
+                        {
+                            JObject listRes = Dynamic.InvokeGetIndex(res, 0);
+                            for (int currCol = rc + 1; currCol < totalResCol; currCol++)
+                            {
+                                string resArrElementValue = null;
+                                string resArrElement = Excel.GetCellValue(resFilePath, shName, 0, currCol).ToString();
+                                //resFlagCount = resFlagCount + 1;
+                                if (!resArrElement.ToString().Equals("|NoOfElements|"))
+                                {
+                                    if (!resArrElement.Equals("|IsAnObject|"))
+                                    {
+                                        if (Excel.GetCellValue(resFilePath, shName, rowData, currCol) != null)
+                                        {
+                                            resFlagCount = resFlagCount + 1;
+                                            resArrElementValue = Excel.GetCellValOnCol(resFilePath, shName, rowData, resArrElement).ToString();
+                                            //JObject listRes = Dynamic.InvokeGetIndex(res, 0);
+                                            JProperty actRes = listRes.Property(resArrElement);
+                                            if (sampleRes["SampleResponses"] != null)
+                                            {
+                                                string[] s = actRes.ToString().Split(':');
+                                                if (!sampleRes["SampleResponses"].ToString().Contains(s[0]))
+                                                {
+                                                    ans = false;
+                                                    System.IO.File.AppendAllLines(".//Resources//tmp.txt", new string[] { "Result:FAILED" });
+                                                    System.IO.File.AppendAllLines(".//Resources//tmp.txt", new string[] { "Response Failed to match sample: " + s[0] });
+                                                    break;
+                                                }
+
+                                            }
+                                            if (!actRes.ToString().Contains(resArrElementValue.ToString()))
+                                            {
+                                                ans = false;
+                                                System.IO.File.AppendAllLines(".//Resources//tmp.txt", new string[] { "Result:FAILED" });
+                                                System.IO.File.AppendAllLines(".//Resources//tmp.txt", new string[] { "Response Comparison Failed : " + actRes.ToString() });
+                                                break;
+                                            }
+                                            else
+                                                ans = true;
+                                        }
+                                        else
+                                        {
+                                            resFlagCount = resFlagCount + 1;
+                                            continue;
+                                        }
+                                    }
+                                }
+                                //rc = rc + resFlagCount;
+                                if (resArrElement.Equals("|IsAnObject|"))
+                                {
+                                    objFlagCount = 0;
+                                    string pObject = Excel.GetCellValue(resFilePath, shName, rowData, currCol).ToString();
+                                    for (int occ = currCol + 1; occ < totalResCol; occ++)
+                                    {
+                                        string eValue;
+                                        if (Excel.GetCellValue(resFilePath, shName, rowData, occ) != null)
+                                        {
+                                            if (!Excel.GetCellValue(resFilePath, shName, 0, occ).ToString().Equals("|IsAnObject|"))
+                                            {
+                                                JToken res1 = null;
+                                                objFlagCount = objFlagCount + 1;
+                                                element = Excel.GetCellValue(resFilePath, shName, 0, occ).ToString();
+                                                eValue = Excel.GetCellValue(resFilePath, shName, rowData, occ).ToString();
+                                                JProperty actRes = listRes.Property(pObject);
+                                                res1 = actRes.Value.Value<JToken>(element);
+                                                //foreach(JToken j in actRes.Descendants().Children())
+                                                //{
+                                                //    res1=j.Values(element);
+                                                //}
+
+                                                //string res1 = Dynamic.InvokeGet((dynamic)actRes, element);
+                                                //dynamic objRes = Dynamic.InvokeGet(res, pObject);
+                                                //string res1 = Dynamic.InvokeGet((object)objRes, element);
+                                                if (!res1.ToString().Contains(eValue))
+                                                {
+                                                    ans = false;
+                                                    System.IO.File.AppendAllLines(".//Resources//tmp.txt", new string[] { "Result:FAILED" });
+                                                    System.IO.File.AppendAllLines(".//Resources//tmp.txt", new string[] { "Response Comparison Failed : " + res1.ToString() });
+                                                    break;
+                                                }
+                                                else
+                                                    ans = true;
+                                            }
+                                            if (Excel.GetCellValue(resFilePath, shName, 0, occ).ToString().Equals("|IsAnObject|"))
+                                                break;
+                                        }
+                                    }
+                                    currCol = currCol + objFlagCount;
+                                    rc = currCol;
+                                }
+                                if (resArrElement.Equals("|NoOfElements|"))
+                                    break;
+                            }
+                        }
+                    }
+
+                    rc = rc + resFlagCount;
+                }
+            }
+            return ans;
+        }
+
+        public static bool ValidateGetResponse(Dictionary<string, object> sampleRes, string resFilePath, string shName, int rowData, string env, IRestResponse actResponse,string[] ignoreEle = null)
+        {
+            bool ans = false;
+            List<string> l = new List<string>();
+            try
+            {
+                int i = Excel.GetExcelColCount(resFilePath, shName, rowData - 1);
+                if (i != -1)
+                {
+                    for (int e = 0; e < i; e++)
+                    {
+                        l.Add(Excel.GetCellValue(resFilePath, shName, rowData - 1, e).ToString());
+                    }
+                }
+                if (sampleRes["SampleResponses"] != null)
+                {
+                    if (sampleRes["SampleResponses"].ToString().StartsWith("["))
+                        System.IO.File.WriteAllText(".//Results//APIResults//" + SuperFixtureAPI.testFixtureName + "//Requests//" + shName + rowData.ToString() + ".json", JArray.Parse(actResponse.Content.ToString()).ToString());
+                    else
+                        System.IO.File.WriteAllText(".//Results//APIResults//" + SuperFixtureAPI.testFixtureName + "//Requests//" + shName + rowData.ToString() + ".json", JObject.Parse(actResponse.Content.ToString()).ToString());
+                }
+                else
+                {
+                    if (actResponse.Content.ToString().StartsWith("["))
+                        System.IO.File.WriteAllText(".//Results//APIResults//" + SuperFixtureAPI.testFixtureName + "//Requests//" + shName + rowData.ToString() + ".json", JArray.Parse(actResponse.Content.ToString()).ToString());
+                    else
+                        System.IO.File.WriteAllText(".//Results//APIResults//" + SuperFixtureAPI.testFixtureName + "//Requests//" + shName + rowData.ToString() + ".json", JObject.Parse(actResponse.Content.ToString()).ToString());
+                }
+                ans = ValidateResponseValues(shName, rowData, env, ignoreEle, false);
+
+            }
+            catch (NullReferenceException ex)
+            {
+
+                if (sampleRes["SampleResponses"] != null)
+                {
+                    if (sampleRes["SampleResponses"].ToString().StartsWith("["))
+                        System.IO.File.WriteAllText(".//Results//APIResults//" + SuperFixtureAPI.testFixtureName + "//Requests//" + shName + rowData.ToString() + ".json", JArray.Parse(actResponse.Content.ToString()).ToString());
+                    else
+                        System.IO.File.WriteAllText(".//Results//APIResults//" + SuperFixtureAPI.testFixtureName + "//Requests//" + shName + rowData.ToString() + ".json", JObject.Parse(actResponse.Content.ToString()).ToString());
+                }
+                else
+                {
+                    if (actResponse.Content.ToString().StartsWith("["))
+                        System.IO.File.WriteAllText(".//Results//APIResults//" + SuperFixtureAPI.testFixtureName + "//Requests//" + shName + rowData.ToString() + ".json", JArray.Parse(actResponse.Content.ToString()).ToString());
+                    else
+                        System.IO.File.WriteAllText(".//Results//APIResults//" + SuperFixtureAPI.testFixtureName + "//Requests//" + shName + rowData.ToString() + ".json", JObject.Parse(actResponse.Content.ToString()).ToString());
+                }
+                ans = ValidateResponseValues(shName, rowData, env, ignoreEle, false);
+            }
+            return ans;
+        }
+        public static bool ValidateResponseValues(string reqName, int rData, string testEnv, string[] ignoreEle = null, bool isXml = false)
+        {
+            bool flag = false;
+            bool flag1 = false;
+            bool flag2 = false;
+            System.Diagnostics.Process process = new System.Diagnostics.Process();
+            System.Diagnostics.ProcessStartInfo startInfo = new System.Diagnostics.ProcessStartInfo
+            {
+                WindowStyle = System.Diagnostics.ProcessWindowStyle.Normal,
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                FileName = "C:\\Windows\\System32\\fc.exe"
+            };
+            //startInfo.WorkingDirectory= @"C:\Source\VWrapAutomation\VWrapAutomation";
+            string startupPath = Environment.CurrentDirectory;
+            if (reqName.StartsWith("UK"))
+            {
+                if (isXml)
+                    startInfo.Arguments = startupPath + "\\Results\\APIResults\\" + SuperFixtureAPI.testFixtureName + "\\Requests\\" + reqName + rData.ToString() + ".xml " + startupPath + "\\Resources\\API_Baseline\\UK\\" + testEnv + "\\" + reqName + rData.ToString() + ".xml";
+                else
+                    startInfo.Arguments = startupPath + "\\Results\\APIResults\\" + SuperFixtureAPI.testFixtureName + "\\Requests\\" + reqName + rData.ToString() + ".json " + startupPath + "\\Resources\\API_Baseline\\UK\\" + testEnv + "\\" + reqName + rData.ToString() + ".json";
+            }
+            else
+            {
+                if (isXml)
+                    startInfo.Arguments = startupPath + "\\Results\\APIResults\\" + SuperFixtureAPI.testFixtureName + "\\Requests\\" + reqName + rData.ToString() + ".xml " + startupPath + "\\Resources\\API_Baseline\\AU\\" + testEnv + "\\" + reqName + rData.ToString() + ".xml";
+                else
+                    startInfo.Arguments = startupPath + "\\Results\\APIResults\\" + SuperFixtureAPI.testFixtureName + "\\Requests\\" + reqName + rData.ToString() + ".json " + startupPath + "\\Resources\\API_Baseline\\AU\\" + testEnv + "\\" + reqName + rData.ToString() + ".json";
+            }
+            process.StartInfo = startInfo;
+            process.Start();
+            string strOutput = process.StandardOutput.ReadToEnd();
+            process.WaitForExit(5000);
+            //SeleniumAction.Sync(4);
+            if (!strOutput.Contains("no differences encountered")&&(strOutput.Contains("*****")))
+            {
+                flag = GenerateDiffBCFile(reqName, rData, testEnv, isXml,ignoreEle);
+                //if (ignoreEle != null)
+                //{
+                //    flag1 = ignoreEle.All(p => strOutput.Contains(p)) ? true : false;
+                //    flag2 = flag && flag1;
+
+                //}
+                //else
+                //    flag2 = flag;
+                if (!flag)
+                    GenerateHTMLDiffReport(reqName, rData, testEnv, isXml);
+            }
+            else
+            {
+                flag = true;
+            }
+            if (!flag)
+            {
+                System.IO.File.AppendAllLines(".//Resources//tmp.txt", new string[] { "Result:COMPARISON FAILED " + reqName });
+
+            }
+            return flag;
+        }
+    }
+
+}
